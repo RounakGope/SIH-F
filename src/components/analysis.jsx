@@ -1,15 +1,14 @@
 import React from 'react';
 import './Analysis.css';
 
-const Analysis = ({ analysisData, setCurrentRoute }) => {
-  // If no data is passed, show a message and a way to go back.
+const Analysis = ({ analysisData, onNavigate }) => {
+  // Guard clause in case the user navigates here directly without data
   if (!analysisData) {
     return (
       <div className="analysis-container">
         <div className="analysis-card">
-          <h2>No Analysis Data</h2>
-          <p>Please go back and upload or capture an image first.</p>
-          <button onClick={() => setCurrentRoute('/recognize')} className="back-btn">
+          <p>No analysis data available. Please upload an image first.</p>
+          <button className="analyze-another-btn" onClick={() => onNavigate('/recognize')}>
             Go Back
           </button>
         </div>
@@ -17,24 +16,29 @@ const Analysis = ({ analysisData, setCurrentRoute }) => {
     );
   }
 
-  const { imageSrc, header, body } = analysisData;
+  const { image, prediction } = analysisData;
+
+  // Safely access prediction data with fallbacks
+  const kolamClass = prediction?.label || 'Unknown';
+  const confidence = prediction?.confidence; // already a percentage from backend
+  const designPrinciple = prediction?.design_principle || 'No design principle information available.';
 
   return (
     <div className="analysis-container">
       <div className="analysis-card">
-        <div className="analysis-image-container">
-          <img src={imageSrc} alt="Analyzed Kolam" className="analysis-image" />
+        <div className="image-display">
+            {image && <img src={image} alt="Analyzed Kolam" />}
         </div>
-        <div className="analysis-content">
-          <div className="analysis-header">
-            <h3>{header}</h3>
-          </div>
-          <div className="analysis-body">
-            <p>{body}</p>
-          </div>
+        <div className="result-box">
+            <p><strong>Identified as:</strong> {kolamClass}</p>
+            <p><strong>Confidence:</strong> {typeof confidence === 'number' ? `${(confidence * 100).toFixed(1)}%` : 'Unavailable'}</p>
         </div>
-        <button onClick={() => setCurrentRoute('/recognize')} className="back-btn">
-          Analyze Another
+        <div className="result-box">
+            <p><strong>Design Principle:</strong></p>
+            <p>{designPrinciple}</p>
+        </div>
+        <button className="analyze-another-btn" onClick={() => onNavigate('/recognize')}>
+            Analyze Another
         </button>
       </div>
     </div>
@@ -42,3 +46,4 @@ const Analysis = ({ analysisData, setCurrentRoute }) => {
 };
 
 export default Analysis;
+

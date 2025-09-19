@@ -1,148 +1,145 @@
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
+// Ensure your service file is correctly located at 'src/services/kolamService.js'
+import kolamService from '../services/kolamService'; 
 import './Recognize.css';
 
-const Recognize = ({ setCurrentRoute }) => {
-  const [imageSrc, setImageSrc] = useState(null);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [error, setError] = useState('');
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-
-  // Hidden file input for the upload button
-  const fileInputRef = useRef(null);
-
-  const handleUploadClick = () => {
-    fileInputRef.current.click();
-  };
-
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImageSrc(e.target.result);
-        setIsCameraOpen(false); // Close camera if it was open
-      };
-      reader.readAsDataURL(file);
+// Helper function to convert a base64 data URL to a File object for the camera capture
+const dataURLtoFile = (dataurl, filename) => {
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
     }
-  };
+    return new File([u8arr], filename, { type: mime });
+}
 
-  // Function to start the camera
-  const startCamera = async () => {
-    // Check if mediaDevices is supported
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+const Recognize = ({ onAnalysisSuccess, onNavigate }) => {
+    const fileInputRef = useRef(null);
+    const videoRef = useRef(null);
+    const canvasRef = useRef(null);
+
+    const [isCameraOn, setIsCameraOn] = useState(false);
+    const [stream, setStream] = useState(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const stopCamera = () => {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
         }
-        setIsCameraOpen(true);
-        setImageSrc(null); // Clear previous image
+        setIsCameraOn(false);
+        setStream(null);
+    };
+
+    // This function calls your service and handles the result
+    const runAnalysis = async (imageFile, imagePreview) => {
+        setIsLoading(true);
         setError('');
-      } catch (err) {
-        console.error("Error accessing camera: ", err);
-        setError('Could not access the camera. Please check permissions and try again.');
-        setIsCameraOpen(false);
-      }
-    } else {
-      setError('Your browser does not support camera access.');
-    }
-  };
+        try {
+            const response = await kolamService.predictKolam(imageFile);
+            // On success, pass the full result up to the App component
+            onAnalysisSuccess({
+                image: imagePreview,
+                prediction: response.data,
+            });
+        } catch (err) {
+            setError('Analysis failed. Please check the server connection and try again.');
+            console.error("Prediction Error:", err);
+        } finally {
+            setIsLoading(false);
+            stopCamera();
+        }
+    };
 
-  // Function to take a picture
-  const takePicture = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      // Set canvas dimensions to match the video stream
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+    // This function is triggered when the user selects a file
+    const handleFileChange = (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                // We pass the original File object for the API and the data URL for the preview
+                runAnalysis(file, reader.result);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
 
-      const context = canvas.getContext('2d');
-      context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-      
-      const dataUrl = canvas.toDataURL('image/png');
-      setImageSrc(dataUrl);
-      stopCamera();
-    }
-  };
+    // This function is called when the "Upload" button is clicked
+    const handleUploadClick = () => {
+        stopCamera();
+        // Programmatically click the hidden file input element
+        fileInputRef.current.click();
+    };
 
-  // Function to stop the camera stream
-  const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject;
-      const tracks = stream.getTracks();
-      tracks.forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
-    setIsCameraOpen(false);
-  };
+    const handleCaptureClick = async () => {
+        setError('');
+        if (isCameraOn) {
+            if (videoRef.current && canvasRef.current) {
+                const video = videoRef.current;
+                const canvas = canvasRef.current;
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageDataUrl = canvas.toDataURL('image/png');
+                const imageFile = dataURLtoFile(imageDataUrl, 'capture.png');
+                runAnalysis(imageFile, imageDataUrl);
+            }
+        } else {
+            try {
+                const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                if (videoRef.current) videoRef.current.srcObject = newStream;
+                setStream(newStream);
+                setIsCameraOn(true);
+            } catch (err) {
+                setError('Could not access the camera. Please check permissions.');
+            }
+        }
+    };
 
-  return (
-    <div className="recognize-container">
-      <h1 className="recognize-title">Let The AI Recognize</h1>
-      <p className="recognize-subtitle">
-        Upload images and get AI-powered analysis of Kolam patterns
-      </p>
+    const handleRecreateClick = () => {
+        stopCamera();
+        onNavigate('/recreate');
+    };
 
-      {/* Display the captured or uploaded image */}
-      {imageSrc && !isCameraOpen && (
-        <div className="image-preview-container">
-          <img src={imageSrc} alt="Kolam Preview" className="image-preview" />
+    return (
+        <div className="recognize-container">
+            {/* Hidden file input element, controlled by the "Upload" button */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+                accept="image/*"
+            />
+
+            <h1 className="recognize-title">Let The AI Recognize</h1>
+            <p className="recognize-subtitle">Upload or capture an image for analysis.</p>
+
+            <div className="display-area">
+                {isLoading ? (
+                    <div className="loading-spinner"></div>
+                ) : isCameraOn ? (
+                    <div className="camera-view">
+                        <video ref={videoRef} autoPlay playsInline className="video-feed"></video>
+                        <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
+                    </div>
+                ) : (
+                    <div className="display-placeholder"><p>Image preview will appear here</p></div>
+                )}
+            </div>
+
+            {error && <p className="error-message">{error}</p>}
+
+            <div className="recognize-controls">
+                <button className="recognize-button" onClick={handleUploadClick} disabled={isLoading}>Upload</button>
+                <button className="recognize-button" onClick={handleCaptureClick} disabled={isLoading}>{isCameraOn ? 'Take Photo' : 'Capture'}</button>
+                <button className="recognize-button" onClick={handleRecreateClick} disabled={isLoading}>Recreate</button>
+            </div>
         </div>
-      )}
-
-      {/* Display the camera view if active */}
-      {isCameraOpen && (
-        <div className="camera-view-container">
-          <video ref={videoRef} autoPlay playsInline className="camera-stream"></video>
-          <button onClick={takePicture} className="capture-snapshot-btn">
-            Take Picture
-          </button>
-        </div>
-      )}
-      
-      {/* Hidden canvas for capturing the image frame */}
-      <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
-      
-      {/* Display error message if any */}
-      {error && <p className="error-message">{error}</p>}
-
-      <div className="recognize-actions">
-        {!isCameraOpen ? (
-          <>
-            <button onClick={handleUploadClick} className="action-btn">
-              <span>&#x2191;</span> Upload
-            </button>
-            <button onClick={startCamera} className="action-btn">
-              <span>&#x1F4F7;</span> Capture
-            </button>
-          </>
-        ) : (
-           <button onClick={stopCamera} className="action-btn stop-btn">
-              Cancel
-            </button>
-        )}
-      </div>
-
-      <button
-        className="action-btn small-btn"
-        onClick={() => setCurrentRoute('/recreate')}
-      >
-        <span>&#x2699;&#xFE0F;</span>Recreate or complete patterns
-      </button>
-
-      {/* Hidden file input */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileChange}
-        style={{ display: 'none' }}
-        accept="image/*"
-      />
-    </div>
-  );
+    );
 };
 
 export default Recognize;
